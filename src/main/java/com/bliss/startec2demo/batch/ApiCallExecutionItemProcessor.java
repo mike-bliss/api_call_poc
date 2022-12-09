@@ -9,31 +9,29 @@ import org.springframework.batch.core.annotation.AfterStep;
 import org.springframework.batch.item.ItemProcessor;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Slf4j
-public class ApiCallExecutionItemProcessor implements ItemProcessor<ApiCall, ApiCallResult> {
+public class ApiCallExecutionItemProcessor implements ItemProcessor<ApiCallResult, ApiCallResult> {
 
     private Map<String, Map<String, List<String>>> instancesByAccountAndRegion = new HashMap<>();
 
     private Map<String, String> accountNameByChId = new HashMap<>();
 
     @Override
-    public ApiCallResult process(ApiCall apiCall) throws Exception {
-        instancesByAccountAndRegion.computeIfAbsent(apiCall.getChAccountId(), regionMap -> new HashMap<>())
-                .computeIfAbsent(apiCall.getRegion(), resourceList -> new ArrayList<>())
-                .add(apiCall.getResourceId());
-        accountNameByChId.put(apiCall.getChAccountId(), apiCall.getAccountName());
+    public ApiCallResult process(ApiCallResult apiCallResult) throws Exception {
+        instancesByAccountAndRegion.computeIfAbsent(apiCallResult.getChAccountId(), regionMap -> new HashMap<>())
+                .computeIfAbsent(apiCallResult.getRegion(), resourceList -> new ArrayList<>())
+                .add(apiCallResult.getResourceId());
+        accountNameByChId.put(apiCallResult.getChAccountId(), apiCallResult.getAccountName());
 
-        ApiCallResult apiCallResult = new ApiCallResult(apiCall);
-        int randNum = Instant.now().getNano();
+        int seed = Instant.now().getNano();
+        Random random = new Random(seed);
+        int randNum = random.nextInt();
         if (randNum % 2 == 0) {
-            apiCallResult.setSuccessMessage(String.format("Successfully deleted %s in account %s", apiCall.getResourceId(), apiCall.getAccountName()));
+            apiCallResult.setSuccessMessage(String.format("Successfully deleted %s in account %s", apiCallResult.getResourceId(), apiCallResult.getAccountName()));
         }else{
-            apiCallResult.setFailureMessage(String.format("Failed to delete %s in account %s", apiCall.getResourceId(), apiCall.getAccountName()));
+            apiCallResult.setFailureMessage(String.format("Failed to delete %s in account %s", apiCallResult.getResourceId(), apiCallResult.getAccountName()));
         }
         return apiCallResult;
 

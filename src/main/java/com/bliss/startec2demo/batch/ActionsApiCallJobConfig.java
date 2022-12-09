@@ -12,7 +12,10 @@ import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemReader;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.batch.item.database.BeanPropertyItemSqlParameterSourceProvider;
+import org.springframework.batch.item.database.PagingQueryProvider;
 import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
+import org.springframework.batch.item.database.builder.JdbcPagingItemReaderBuilder;
+import org.springframework.batch.item.database.support.SqlPagingQueryProviderFactoryBean;
 import org.springframework.batch.item.json.JacksonJsonObjectReader;
 import org.springframework.batch.item.json.builder.JsonItemReaderBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,8 +35,12 @@ import javax.sql.DataSource;
 @Configuration
 public class ActionsApiCallJobConfig {
 
-    private String sqlInsertStatement = "insert into API_CALL_RESULTS(account_name,ch_account_id,resource_id,region,status,success_message,failure_message) " +
+    private final String SQL_INSERT_STATEMENT = "insert into API_CALL_RESULTS(account_name,ch_account_id,resource_id,region,status,success_message,failure_message) " +
             "values (:accountName,:chAccountId,:resourceId,:region,:status,:successMessage,:failureMessage)";
+
+    private final String SQL_SELECT_STATEMENT = "select account_name,ch_account_id,resource_id,region,status,success_message,failure_message";
+
+    private final String FROM_CLAUSE = "from API_CALL_RESULTS";
 
     @Autowired
     public JobBuilderFactory jobBuilderFactory;
@@ -43,6 +50,8 @@ public class ActionsApiCallJobConfig {
 
     @Autowired
     public DataSource dataSource;
+
+    // SAVE API CALL TO DB STEP
 
     @Bean
     public ItemReader<ApiCall> saveApiCAllItemReader() {
@@ -55,61 +64,89 @@ public class ActionsApiCallJobConfig {
 
     @Bean
     public ItemProcessor<ApiCall, ApiCallResult> saveApiCallItemProcessor() {
-        return new ApiCallExecutionItemProcessor();
+        return new SaveApiCallItemProcessor();
     }
 
     @Bean
     public ItemWriter<ApiCallResult> saveApiCallItemWriter() {
-        log.info("Writing ");
-        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
-        NamedParameterJdbcTemplate namedParameterJdbcTemplate = new NamedParameterJdbcTemplate(jdbcTemplate);
         return new JdbcBatchItemWriterBuilder<ApiCallResult>()
-                .namedParametersJdbcTemplate(namedParameterJdbcTemplate)
-                .sql(sqlInsertStatement)
+                .dataSource(dataSource)
+                .sql(SQL_INSERT_STATEMENT)
                 .beanMapped()
                 .build();
     }
 
     @Bean
-    public Step saveApiCallsToDbStep(ItemReader<ApiCall> apiCallJsonItemReader,
-                                  ItemProcessor<ApiCall, ApiCallResult> apiCallExecutionItemProcessor,
-                                  ItemWriter<ApiCallResult> apiCallResultItemWriter) {
+    public Step saveApiCallsToDbStep(ItemReader<ApiCall> saveApiCAllItemReader,
+                                     ItemProcessor<ApiCall, ApiCallResult> saveApiCallItemProcessor,
+                                     ItemWriter<ApiCallResult> saveApiCallItemWriter) {
         log.info("persisting json info to db");
         return this.stepBuilderFactory.get("saveApiCallsToDbStep")
                 .<ApiCall, ApiCallResult>chunk(1000)
-                .reader(apiCallJsonItemReader)
-                .writer(apiCallResultItemWriter)
+                .reader(saveApiCAllItemReader)
+                .processor(saveApiCallItemProcessor)
+                .writer(saveApiCallItemWriter)
                 .build();
     }
 
+    // API CALL EXECUTION STEP
+
     @Bean
-    public Step apiCallStep(ItemReader<ApiCall> apiCallJsonItemReader,
-                            ItemProcessor<ApiCall, ApiCallResult> apiCallExecutionItemProcessor,
-                            ItemWriter<ApiCallResult> apiCallResultItemWriter) {
-        log.info("creating api call step");
-        return this.stepBuilderFactory.get("apiCallStep")
+	public ItemReader<ApiCallResult> apiCallExecutionItemReader() throws Exception {
+		return new JdbcPagingItemReaderBuilder()
+				.dataSource(dataSource)
+				.name("apiCallExecutionItemReader")
+				.queryProvider(apiCallQueryProvider())
+				.rowMapper(new ApiCallResultRowMapper())
+				.pageSize(1000)
+				.build();
+	}
+
+	@Bean
+	public PagingQueryProvider apiCallQueryProvider() throws Exception {
+		SqlPagingQueryProviderFactoryBean factory = new SqlPagingQueryProviderFactoryBean();
+
+		factory.setSelectClause(SQL_SELECT_STATEMENT);
+		factory.setFromClause(FROM_CLAUSE);
+		factory.setSortKey("id");
+		factory.setDataSource(dataSource);
+
+		return factory.getObject();
+	}
+
+    @Bean
+    public ItemProcessor<ApiCallResult, ApiCallResult> apiCAllExecutionItemProcessor() {
+        return new ApiCallExecutionItemProcessor();
+    }
+
+    @Bean
+    public Step apiCallExecutionStep(ItemReader<ApiCallResult> apiCallExecutionItemReader,
+                            ItemProcessor<ApiCallResult, ApiCallResult> apiCallExecutionItemProcessor,
+                            ItemWriter<ApiCallResult> apiCallExecutionItemWriter,
+                            SimpleAsyncTaskExecutor simpleAsyncTaskExecutor ) {
+        return this.stepBuilderFactory.get("apiCallExecutionStep")
                 .<ApiCall, ApiCallResult>chunk(1000)
-                .reader(apiCallJsonItemReader)
+                .reader(apiCallExecutionItemReader)
                 .processor(apiCallExecutionItemProcessor)
-                .writer(apiCallResultItemWriter)
-//                .taskExecutor(new SimpleAsyncTaskExecutor())
+                .writer(apiCallExecutionItemWriter)
+                .taskExecutor(simpleAsyncTaskExecutor)
                 .build();
     }
 
     @Bean
-    public Job apiCallJob(Step apiCallStep) {
-        log.info("creating api call job");
+    public Job apiCallJob(Step saveApiCallsToDbStep,
+                          Step apiCallExecutionStep) {
         return this.jobBuilderFactory.get("apiCallJob")
-                .start()
-                .next(saveApiCallsToDbStep)
+                .start(saveApiCallsToDbStep)
+                .next(apiCallExecutionStep)
                 .build();
     }
 
-//    @Bean
-//    public SimpleAsyncTaskExecutor simpleAsyncTaskExecutor() {
-//        SimpleAsyncTaskExecutor simpleAsyncTaskExecutor = new SimpleAsyncTaskExecutor();
-//        simpleAsyncTaskExecutor.setConcurrencyLimit(10);
-//        simpleAsyncTaskExecutor.setThreadNamePrefix("CloudHealthActionExecutorThread");
-//        return simpleAsyncTaskExecutor;
-//    }
+    @Bean
+    public SimpleAsyncTaskExecutor simpleAsyncTaskExecutor() {
+        SimpleAsyncTaskExecutor simpleAsyncTaskExecutor = new SimpleAsyncTaskExecutor();
+        simpleAsyncTaskExecutor.setConcurrencyLimit(10);
+        simpleAsyncTaskExecutor.setThreadNamePrefix("CloudHealthActionExecutorThread");
+        return simpleAsyncTaskExecutor;
+    }
 }
