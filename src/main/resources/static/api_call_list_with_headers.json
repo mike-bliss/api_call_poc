@@ -1,0 +1,21 @@
+{
+  "resourceType": "aws_ebs_snapshot",
+  "delegatedActionId": "123",
+  "customerId": "2017",
+  "organizationId": "12345",
+  "userId": "rkumar19",
+  "violations": [
+    {
+      "accountName": "test-aws-account",
+      "chAccountId": "1234567890",
+      "resourceId": "11223344",
+      "region": "us-east-1"
+    },
+    {
+      "accountName": "test-aws-account",
+      "chAccountId": "1234567890",
+      "resourceId": "11223344",
+      "region": "us-east-1"
+    }
+  ]
+}

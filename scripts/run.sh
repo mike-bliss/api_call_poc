@@ -1,0 +1,1 @@
+java -jar -Dspring.batch.job.names=apiCallJob build/libs/startec2demo-0.0.1-SNAPSHOT.jar
