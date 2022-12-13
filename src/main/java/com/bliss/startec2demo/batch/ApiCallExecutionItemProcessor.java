@@ -1,8 +1,6 @@
 package com.bliss.startec2demo.batch;
 
-import com.bliss.startec2demo.models.ApiCall;
 import com.bliss.startec2demo.models.ApiCallResult;
-import com.bliss.startec2demo.models.Status;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.StepExecution;
 import org.springframework.batch.core.annotation.AfterStep;

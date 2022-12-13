@@ -11,7 +11,6 @@ import org.springframework.batch.core.configuration.annotation.StepBuilderFactor
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemReader;
 import org.springframework.batch.item.ItemWriter;
-import org.springframework.batch.item.database.BeanPropertyItemSqlParameterSourceProvider;
 import org.springframework.batch.item.database.PagingQueryProvider;
 import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.batch.item.database.builder.JdbcPagingItemReaderBuilder;
@@ -23,12 +22,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.namedparam.BeanPropertySqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 
 import javax.sql.DataSource;
+import java.util.List;
 
 @Slf4j
 @EnableBatchProcessing
@@ -38,7 +34,7 @@ public class ActionsApiCallJobConfig {
     private final String SQL_INSERT_STATEMENT = "insert into API_CALL_RESULTS(account_name,ch_account_id,resource_id,region,status,success_message,failure_message) " +
             "values (:accountName,:chAccountId,:resourceId,:region,:status,:successMessage,:failureMessage)";
 
-    private final String SQL_SELECT_STATEMENT = "select account_name,ch_account_id,resource_id,region,status,success_message,failure_message";
+    private final String SQL_SELECT_STATEMENT = "select id,account_name,ch_account_id,resource_id,region,status,success_message,failure_message";
 
     private final String FROM_CLAUSE = "from API_CALL_RESULTS";
 
@@ -54,7 +50,7 @@ public class ActionsApiCallJobConfig {
     // SAVE API CALL TO DB STEP
 
     @Bean
-    public ItemReader<ApiCall> saveApiCAllItemReader() {
+    public ItemReader<ApiCall> saveApiCallItemReader() {
         return new JsonItemReaderBuilder<ApiCall>()
                 .jsonObjectReader(new JacksonJsonObjectReader<>(ApiCall.class))
                 .resource(new ClassPathResource("static/api_call_list_20000.json"))
@@ -77,13 +73,13 @@ public class ActionsApiCallJobConfig {
     }
 
     @Bean
-    public Step saveApiCallsToDbStep(ItemReader<ApiCall> saveApiCAllItemReader,
+    public Step saveApiCallsToDbStep(ItemReader<ApiCall> saveApiCallItemReader,
                                      ItemProcessor<ApiCall, ApiCallResult> saveApiCallItemProcessor,
                                      ItemWriter<ApiCallResult> saveApiCallItemWriter) {
         log.info("persisting json info to db");
         return this.stepBuilderFactory.get("saveApiCallsToDbStep")
                 .<ApiCall, ApiCallResult>chunk(1000)
-                .reader(saveApiCAllItemReader)
+                .reader(saveApiCallItemReader)
                 .processor(saveApiCallItemProcessor)
                 .writer(saveApiCallItemWriter)
                 .build();
@@ -115,21 +111,30 @@ public class ActionsApiCallJobConfig {
 	}
 
     @Bean
-    public ItemProcessor<ApiCallResult, ApiCallResult> apiCAllExecutionItemProcessor() {
+    public ItemProcessor<ApiCallResult, ApiCallResult> apiCallExecutionItemProcessor() {
         return new ApiCallExecutionItemProcessor();
+    }
+
+    @Bean
+    public ItemWriter<ApiCallResult> apiCallExecutionItemWriter() {
+        return new JdbcBatchItemWriterBuilder<ApiCallResult>()
+                .dataSource(dataSource)
+                .sql(SQL_INSERT_STATEMENT)
+                .beanMapped()
+                .build();
     }
 
     @Bean
     public Step apiCallExecutionStep(ItemReader<ApiCallResult> apiCallExecutionItemReader,
                             ItemProcessor<ApiCallResult, ApiCallResult> apiCallExecutionItemProcessor,
                             ItemWriter<ApiCallResult> apiCallExecutionItemWriter,
-                            SimpleAsyncTaskExecutor simpleAsyncTaskExecutor ) {
+                            SimpleAsyncTaskExecutor apiCallAsyncTaskExecutor ) {
         return this.stepBuilderFactory.get("apiCallExecutionStep")
-                .<ApiCall, ApiCallResult>chunk(1000)
+                .<ApiCallResult, ApiCallResult>chunk(1000)
                 .reader(apiCallExecutionItemReader)
                 .processor(apiCallExecutionItemProcessor)
                 .writer(apiCallExecutionItemWriter)
-                .taskExecutor(simpleAsyncTaskExecutor)
+                .taskExecutor(apiCallAsyncTaskExecutor)
                 .build();
     }
 
@@ -143,9 +148,9 @@ public class ActionsApiCallJobConfig {
     }
 
     @Bean
-    public SimpleAsyncTaskExecutor simpleAsyncTaskExecutor() {
+    public SimpleAsyncTaskExecutor apiCallAsyncTaskExecutor() {
         SimpleAsyncTaskExecutor simpleAsyncTaskExecutor = new SimpleAsyncTaskExecutor();
-        simpleAsyncTaskExecutor.setConcurrencyLimit(10);
+        simpleAsyncTaskExecutor.setConcurrencyLimit(3);
         simpleAsyncTaskExecutor.setThreadNamePrefix("CloudHealthActionExecutorThread");
         return simpleAsyncTaskExecutor;
     }

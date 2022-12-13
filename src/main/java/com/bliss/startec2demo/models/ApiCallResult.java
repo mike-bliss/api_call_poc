@@ -21,7 +21,7 @@ public class ApiCallResult {
             strategy = GenerationType.SEQUENCE,
             generator = "api_call_sequence"
     )
-    private String id;
+    private Long id;
 
     private String accountName;
 
