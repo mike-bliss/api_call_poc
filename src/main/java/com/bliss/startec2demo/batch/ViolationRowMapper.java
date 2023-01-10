@@ -1,6 +1,5 @@
 package com.bliss.startec2demo.batch;
 
-import com.bliss.startec2demo.models.Status;
 import com.bliss.startec2demo.models.Violation;
 import org.springframework.jdbc.core.RowMapper;
 
