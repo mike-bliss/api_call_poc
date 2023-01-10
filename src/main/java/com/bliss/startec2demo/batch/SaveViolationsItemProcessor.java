@@ -7,10 +7,18 @@ import org.springframework.batch.item.ItemProcessor;
 @Slf4j
 public class SaveViolationsItemProcessor implements ItemProcessor<Violation, Violation> {
 
+    private final long requestId;
+    private final long delegatedActionId;
+
+    public SaveViolationsItemProcessor(long requestId, long delegatedActionId) {
+        this.requestId = requestId;
+        this.delegatedActionId = delegatedActionId;
+    }
+
     @Override
     public Violation process(Violation violation) throws Exception {
-        violation.setRequestId(1L);
-        violation.setDelegatedActionId(123L);
+        violation.setRequestId(this.requestId);
+        violation.setDelegatedActionId(this.delegatedActionId);
         return violation;
     }
 
